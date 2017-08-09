@@ -1,0 +1,323 @@
+---
+title: "Recruitment Test - Ilmuonedata/Data Scientist"
+author: "by Firmansyah Tri Atmojo"
+date: "8/5/2017"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Instructions
+
+In the excel file, you will find:
+
+- **Site Cost Data** - Cost (USD), Ads Impressions, and Ads Clicks for each Digital Marketing Channels for Ecommerce X
+- **Back End Data** - Transaction data from back end that consist of the Booking Number and Revenue (USD) for each booking  for Ecommerce X
+- **Google Analytics** - Google Analytics data from Traffic report. In here, you will find the Sessions, Transactions, and Revenue (USD) from each channels for Ecommerce X
+
+All data came from the same date period. Using a data processing tool of your choosing (**Python, R, Scala, or what-have-you**), please create:
+
+1. **Database structure** for all datasets that will make your query easily.
+2. **Digital Marketing Dashboard** from the raw data given. You can find the fields for the data output in the "Dashboard" tab in the excel file.
+
+After you are done with the dashboard, please write up **a simple one page report** of your analysis of the data as well as a recommendation based on the insights. Imagine that you will be presenting your insights to the CEO of Ecommerce X.
+
+**Note**: Please include all the script that you used to do the test, along with a simple paragraph explaining your work process.
+
+And here is my code, powered by R:
+
+
+```{r library, echo=TRUE}
+#Load package
+#I will use readxl insteadof xlsx that consumed more times, load readxl
+library(readxl)
+library(dplyr)
+library(gtools)
+library(highcharter)
+library(DT)
+library(data.table)
+```
+
+## Database
+
+The first step of the most important thing to create analysis of report is pull the data from the source. The Data was given in **xlsx** format. By creating separated database, it makes our query esier.
+
+
+```{r database, collapse=TRUE}
+#Importing the data
+#Site Cost Data
+site_cost <- read_excel("/Users/firmansyahtriatmojo/Downloads/Data Analyst -Digital Marketing Test - FINAL(2).xlsx", sheet = "Site Cost Data")
+
+#Backend Data
+backend <- read_excel(path = "/Users/firmansyahtriatmojo/Downloads/Data Analyst -Digital Marketing Test - FINAL(2).xlsx", sheet = "Backend Data")
+
+#Google Analytics Data
+GA <- read_excel(path = "/Users/firmansyahtriatmojo/Downloads/Data Analyst -Digital Marketing Test - FINAL(2).xlsx", sheet = "Google Analytics")
+
+#Ref Booking ID
+ref_id <- read_excel(path = "/Users/firmansyahtriatmojo/Downloads/Data Analyst -Digital Marketing Test - FINAL(2).xlsx", sheet = "Ref - ID")
+```
+
+## Dashboard
+
+Once our database is successfully loaded, the next step is creating a dataframe dashboard from database. This dataframe consists 16 variables:
+
+- **Channel** ; Channel types, used for this test, i.e: **A1, A2, A3, etc**
+- **Cost** ; Total of cost spent by each channel in USD pulled from Site Cost Data
+- **Impression** ; The frequency of each channel appears/viewed pulled from Site Cost Data
+- **Click** ; The number of ads clicked by its channel pulled from Site Cost Data
+- **Session** ; The frequency of site visited by its session per channel pulled from Google Analytics Data
+- **GA_Transaction** ; The number of transaction captured by Google Analytics by each channel. Not all of this value is valid transaction
+- **GA_Revenue** ; Total of Revenue captured by Goggle Analytics by each channel. Not all of this value is valid transaction
+- **Valid_Transaction** ; The number of valid transaction of each channel pulled from Back End Data
+- **Valid_Revenue** ; The total number of revenue by channel pulled from Back End Data
+- **Cost_per_1000_Impression** ; The cost incurred per 1000 impression
+- **Cost_per_Click** ; the cost incurred per one click of each channel
+- **Cost_per_Session** ; The cost incurred per one session of each channel
+- **Click_Rate** ; The number of click divided by the number of impression of each channel
+- **Session_per_Click** ; The number of session divided by the number of click of each channel
+- **Cost_per_Transaction** ; Total of cost of each channel divided by valid number of transaction
+- **ROI** ; Return on Investment is net revenue (valid revenue - cost) divided by cost each channel
+
+
+```{r dataframe, echo=TRUE}
+#Creating the dataframe consist of the list of variable above
+#First DF from Site Cost Data
+sc_df <- site_cost %>% 
+  dplyr::group_by(Channel) %>% 
+  dplyr::summarise(Cost = sum(Cost),
+                   Impression = sum(Impressions),
+                   Click = sum(Clicks))
+
+#Second DF from GA
+ga_df <- GA %>% 
+  dplyr::group_by(Channel) %>% 
+  dplyr::summarise(Session = sum(Sessions), 
+                   GA_Transaction = sum(Transactions), 
+                   GA_Revenue = sum(Revenue))
+
+#Third DF from Backend
+be_df <- unique(backend) %>% 
+  dplyr::left_join(unique(ref_id), by = c("Booking No." = "ID")) %>%
+  dplyr::group_by(Channel) %>% 
+  dplyr::summarise(Valid_Transaction = n(), Valid_Revenue = sum(Revenue))
+
+#Base DF, remove NA Channel
+base_df <- sc_df %>% 
+  dplyr::full_join(ga_df, by = c("Channel" = "Channel")) %>% 
+  dplyr::full_join(be_df, by = c("Channel" = "Channel")) %>% 
+  dplyr::filter(!Channel %in% NA)
+#Replace zero value
+base_df[is.na(base_df)] <- 0
+
+#Create additional calculation DF
+add_df <- data.frame(Channel = base_df$Channel, 
+                     Cost_per_1000_Impression = base_df$Cost/base_df$Impression*1000, 
+                     Cost_per_Click = base_df$Cost/base_df$Click, 
+                     Cost_per_Session = base_df$Cost/base_df$Session, 
+                     Click_Rate = base_df$Click/base_df$Impression*100, 
+                     Session_per_Click = base_df$Session/base_df$Click*100, 
+                     Cost_per_Transaction = base_df$Cost/base_df$Valid_Transaction, 
+                     ROI = (base_df$Valid_Revenue-base_df$Cost)/base_df$Cost*100)
+
+#Merge all DF, order
+all_df <- merge(x = base_df, y = add_df, by = "Channel", all = TRUE)
+all_df <- all_df[mixedorder(all_df$Channel),]
+
+#Change Inf,NaN Value to 0
+#all_df[sapply(all_df, is.infinite)] <- Inf
+#all_df[sapply(all_df, is.nan)] <- 0
+
+rm(site_cost, backend, ref_id, GA, sc_df, ga_df, be_df, base_df, add_df)
+```
+
+## Analysis
+
+This section is showing analysis the data On the below table you can find the total of Costs incurred, total of impressions, total of clicks, total of session, total of transactions, and the total of revenue. (**scroll your mouse horizontally on the table**)
+
+#### Summary All
+
+```{r total}
+#Total
+tot_s <- data.frame(total_cost = sum(all_df[,2]),
+                  total_impression = sum(all_df[,3]),
+                  total_click = sum(all_df[,4]),
+                  total_session = sum(all_df[,5]),
+                  total_trx = sum(all_df[,8]),
+                  total_revenue = sum(all_df[,9])
+                  )
+tot_add <- data.frame(cost_per1k_impression = 1000/tot_s$total_impression*tot_s$total_cost,
+                      cost_per_click = tot_s$total_cost/tot_s$total_click,
+                      cost_per_session = tot_s$total_cost/tot_s$total_session,
+                      click_rate = tot_s$total_click/tot_s$total_impression*100,
+                      session_per_click = tot_s$total_session/tot_s$total_click*100,
+                      cost_per_trx = tot_s$total_cost/tot_s$total_trx,
+                      roi = (tot_s$total_revenue-tot_s$total_cost)/tot_s$total_cost*100)
+
+tot <- cbind(tot_s, tot_add)
+rm(tot_add, tot_s)
+
+#tot <- round(tot, 2)
+tot <- format(tot, digits=3, decimal.mark=".", big.mark=",")
+datatable(tot, 
+          caption = "Summary of Dashboard", 
+          rownames = F, 
+          options = list(
+            deferRender = T, paging = F, searching = F, scroller = T, scrollY = 300, scrollX = T)
+          )
+```
+
+Total revenue gained during this period is *$ 479,568* with the valid transaction is *7,035* . While the total cost incurred during this period is *$ 45,506*. Total impression obtained is *76,930,851*. While the clicks and the session are *384,834* and *446,651* respectively.
+
+#### Total Cost
+
+Let's break it down this detail by each channel. First thing is Cost. The top cost by channel is shown below. It can be seen that the highest cost is on channel A2, it is *$ 20,110*. While the lowest cost is on the channel A1, it is *$ 2,070.95*. Otherwise, there is no cost incurred for the other channel. Please see the details on the graph below.
+
+```{r analytics, echo=TRUE}
+#select variable
+cst <- all_df %>% select(Channel, Cost) %>% filter(Cost > 0) %>% arrange(desc(Cost))
+cst$Cost <- round(cst$Cost, 2)
+#Make a plot
+hchart(cst, "bar", hcaes(x = Channel, y = Cost),
+       dataLabels = list(align = "center", enabled = TRUE)) %>%
+  hc_title(text = "Cost Incurred by Channel") %>%
+  hc_subtitle(text = "in US Dollar")
+```
+
+#### Total Impression, Click and Session
+
+- The highest impression is A3 which is *41,926,251* and the second Highest is A5 which is *25,163,355*. Please see the details on the graph below. 
+
+```{r impression}
+#select variable
+imp <- all_df %>% select(Channel, Impression) %>% filter(Impression > 0) %>% arrange(desc(Impression))
+imp$Impression <- round(imp$Impression, 2)
+#Make a plot
+hchart(imp, "bar", hcaes(x = Channel, y = Impression),
+       color = "#bd5151",
+       dataLabels = list(align = "center", enabled = TRUE)) %>%
+  hc_title(text = "Impressions by Channel") %>%
+  hc_subtitle(text = "in number")
+```
+
+- While the highest click is A5 which the value is *134,249* and the second is  A3 which is *101,403*. Please see the details on the graph below.
+
+```{r clicks}
+#select variable
+cli <- all_df %>% select(Channel, Click) %>% filter(Click > 0) %>% arrange(desc(Click))
+cli$Click <- round(cli$Click, 2)
+#Make a plot
+hchart(cli, "bar", hcaes(x = Channel, y = Click),
+       color = "#ff96ca",
+       dataLabels = list(align = "center", enabled = TRUE)) %>%
+  hc_title(text = "Clicks by Channel") %>%
+  hc_subtitle(text = "in number")
+```
+
+- The highest session among all channel is A6 which is *61,421* and the second highest is A15, *57,024*. Please see the details on the graph below.
+
+```{r session}
+#select variable
+ses <- all_df %>% select(Channel, Session) %>% arrange(desc(Session))  %>% slice(1:6) 
+ses$Session <- round(ses$Session, 2)
+#Make a plot
+hchart(ses, "bar", hcaes(x = Channel, y = Session),
+       color = "#c8dec1",
+       dataLabels = list(align = "center", enabled = TRUE)) %>%
+  hc_title(text = "Session by Channel") %>%
+  hc_subtitle(text = "in number")
+```
+
+#### Transactions and Revenue
+
+- The highest transaction comes from channel A43 and also the highest revenue comes from channel A43 too, which is *3384* and gained *$ 164,992.57*. Please see the details on the graph below.
+
+```{r trx & revenue}
+#select variable
+trx <- all_df %>% select(Channel, Valid_Transaction) %>% arrange(desc(Valid_Transaction))  %>% slice(1:6) 
+trx$Valid_Transaction <- round(trx$Valid_Transaction, 2)
+#Make a plot
+hchart(trx, "bar", hcaes(x = Channel, y = Valid_Transaction),
+       color = "#c0ab84",
+       dataLabels = list(align = "center", enabled = TRUE)) %>%
+  hc_title(text = "Transaction by Channel") %>%
+  hc_subtitle(text = "in number")
+
+#select variable
+rev <- all_df %>% select(Channel, Valid_Revenue) %>% arrange(desc(Valid_Revenue))  %>% slice(1:6) 
+rev$Valid_Revenue <- round(rev$Valid_Revenue, 2)
+#Make a plot
+hchart(rev, "bar", hcaes(x = Channel, y = Valid_Revenue),
+       color = "#00cc00",
+       dataLabels = list(align = "center", enabled = TRUE)) %>%
+  hc_title(text = "Revenue by Channel") %>%
+  hc_subtitle(text = "in US Dollar")
+```
+
+#### Conclusion
+
+From the table below, we can conclude that the best performing data is on channel A1 which has highest return on investment, *2,511.1%* and click rate is *$ 56.1%*. Although the cost incurred of channel A1 per 1000 Impression is highest, it is *$ 27.18*. However the cost per click is second lowest also cost per session and cost per transaction are lowest. It means that the cost spent for channel A1 is most effective among the others.
+
+The positive trend also comes from channel A4 which has return on investment in the amount of *184%*. On the contrary, from this data it can be seen that the cost spent on the other channel shows the nagative trends. 
+
+The highest lost comes from A3 which has ROI *-100%*, it is worst among the others which means there are no revenues generated and no transaction occured. So, the investment on channel A3 should be reviewed again. 
+
+The second worst investment comes from channel A5 which has ROI *-91.5%*. Although investment on A5 gained pretty good total impression and click. It has low session and highest cost per transaction. So, the investment on this channel should be reviewed again.
+
+Lastly, investment on the channel A2 and A8 show the negative trends. However, this is not too worst compared to A3 and A5. The total impression and click also session are quite good enough. It generated pretty high revenues and also high transaction occured. In the future the investment for this channel should be reduced to gained positive ROI. Alternatively, the amount of all of the worst investment could be allocated to another channel which have good performance such as A43, A15, A17 and A23.
+
+```{r cost analysis}
+#Choose variables
+cosan <- all_df %>% 
+  select(Channel, Cost_per_1000_Impression, Cost_per_Click, Cost_per_Session, Cost_per_Transaction, ROI) %>%
+  filter(Cost_per_1000_Impression > 0)
+cosan[,2:6] <- round(cosan[,2:6],2)
+#Data table
+datatable(cosan, 
+          caption = "Cost Analysis (in US Dollar)", 
+          rownames = F, 
+          options = list(
+            deferRender = T, paging = F, searching = F, scroller = T, scrollY = 300, scrollX = T)
+          ) %>%
+      formatStyle(
+        'Cost_per_1000_Impression',
+        background = styleColorBar(cosan$Cost_per_1000_Impression, '#00cc00'),
+        backgroundSize = '90%',
+        backgroundRepeat = 'no-repeat',
+        backgroundPosition = 'center'
+      ) %>%
+      formatStyle(
+        'Cost_per_Click',
+        background = styleColorBar(cosan$Cost_per_Click, '#00cc00'),
+        backgroundSize = '90%',
+        backgroundRepeat = 'no-repeat',
+        backgroundPosition = 'center'
+      ) %>%
+      formatStyle(
+        'Cost_per_Session',
+        background = styleColorBar(cosan$Cost_per_Session, '#00cc00'),
+        backgroundSize = '90%',
+        backgroundRepeat = 'no-repeat',
+        backgroundPosition = 'center'
+      ) %>%
+      formatStyle(
+        'Cost_per_Transaction',
+        background = styleColorBar(cosan$Cost_per_Transaction, '#00cc00'),
+        backgroundSize = '90%',
+        backgroundRepeat = 'no-repeat',
+        backgroundPosition = 'center'
+      ) %>%
+      formatStyle(
+        'ROI',
+        background = styleColorBar(cosan$ROI, '#00cc00'),
+        backgroundSize = '90%',
+        backgroundRepeat = 'no-repeat',
+        backgroundPosition = 'center'
+      )
+```
+
+**This is the end of the answer sheets**
+
